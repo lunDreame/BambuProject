@@ -4,6 +4,7 @@ import json
 import binascii
 import jwt      # PyJWT==1.7.1
 import time
+import re
 
 class TCPSocket:
     def __init__(self, host, port):
@@ -41,7 +42,7 @@ def unbind_device():
     try:
         dev_id = input("Enter the device ID to delete (e.g. 01S...): ").strip().upper()
         json_data = {"dev_id": dev_id, "force": False}
-        response = requests.delete("https://api.bambulab.com/v1/iot-service/api/user/bind", headers=headers, json=json_data)
+        response = requests.delete(bambulab_api_url.replace("bambulab", "api.bambulab") + "/v1/iot-service/api/user/bind", headers=headers, json=json_data)
         response.raise_for_status()
         print("Response Text: ", response.text)
 
@@ -53,9 +54,12 @@ def unbind_device():
 
 def send_device_auth(preferred_username: str):
     if client_socket.connected:
-        data = {"login": {"sequence_id": 8001, "command": "login", "wifi": "KR", "tutk": "US", "iot": "https://api.bambulab.com/v1", "apix": "https://api.bambulab.com/", "emqx": "ssl://us.mqtt.bambulab.com:8883", "timezone": "UTC+09:00", "e-improved": True, "user_id": preferred_username}}
+        if cloud_region == "China":
+            json_data = {"login": {"sequence_id": 8001, "command": "login", "wifi": "CN", "tutk": "CN", "iot": "https://api.bambulab.cn/v1", "apix": "https://api.bambulab.cn/", "emqx": "ssl://cn.mqtt.bambulab.com:8883", "timezone": "UTC+09:00", "e-improved": True, "user_id": preferred_username}}
+        else:
+            json_data = {"login": {"sequence_id": 8001, "command": "login", "wifi": "KR", "tutk": "US", "iot": "https://api.bambulab.com/v1", "apix": "https://api.bambulab.com/", "emqx": "ssl://us.mqtt.bambulab.com:8883", "timezone": "UTC+09:00", "e-improved": True, "user_id": preferred_username}}
         start_byte = bytearray([0xa5, 0xa5, 0x06, 0x01])
-        json_bytes = bytearray(json.dumps(data), 'utf-8')
+        json_bytes = bytearray(json.dumps(json_data), 'utf-8')
         end_byte = bytearray([0xa7, 0xa7])
 
         final_data = start_byte + json_bytes + end_byte
@@ -79,7 +83,7 @@ def send_user_ticket(login_ticket: str):
     print("Login Ticket:  ", login_ticket)
 
     try:
-        response = requests.get('https://api.bambulab.com/v1/user-service/my/ticket/' + login_ticket, headers=headers)
+        response = requests.get(bambulab_api_url.replace("bambulab", "api.bambulab") + '/v1/user-service/my/ticket/' + login_ticket, headers=headers)
         response.raise_for_status()
         print("Response Text: ", response.text)
         if len(response.json()) == 2:
@@ -89,7 +93,7 @@ def send_user_ticket(login_ticket: str):
 
 def bind_user_ticket(login_ticket: str):
     try:
-        response = requests.post('https://api.bambulab.com/v1/user-service/my/ticket/' + login_ticket, headers=headers)
+        response = requests.post(bambulab_api_url.replace("bambulab", "api.bambulab") + '/v1/user-service/my/ticket/' + login_ticket, headers=headers)
         response.raise_for_status()
         print("Response Text: ", response.text or None)
         received_byte4, received_json, received_byte2 = client_socket.receive_json()
@@ -98,10 +102,10 @@ def bind_user_ticket(login_ticket: str):
         print("An error occurred while requesting: ", {e})
 
 def get_login_token(username: str, password: str):
-    global headers, decoded_token
+    global headers, decoded_token, bambulab_api_url
     json_data = {"account": username, "password": password, "apiError": ""}
     try:
-        response = requests.post('https://bambulab.com/api/sign-in/form', json=json_data)
+        response = requests.post(bambulab_api_url + '/api/sign-in/form', json=json_data)
         response.raise_for_status()
         print("Response Text: ", response.text)
 
@@ -118,15 +122,28 @@ def get_login_token(username: str, password: str):
 
 
 if __name__ == "__main__":
-    global client_socket
+    global client_socket, cloud_region, bambulab_api_url
 
-    host = input("Printer IP Address: ")
-    username = input("Bambu Lab Accout Mail: ")
-    password = input("Bambu Lab Accout Password: ")
+    host = input("Printer IP Address: ").strip()
+    username = input("Bambu Lab Accout Mail or Phone Number: ").strip()
+    password = input("Bambu Lab Accout Password: ").strip()
+
+    email_pattern = r'^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$'
+    china_phone_pattern = r'^(\+\d{2,3}\s*)?(\d{11})$'
 
     if host and username and password:
+        if re.match(email_pattern, username):
+            print("Your bambulab cloud account is Asia")
+            bambulab_api_url = "https://bambulab.com"
+            cloud_region = ""
+        elif re.match(china_phone_pattern, username):
+            print("Your bambulab cloud account is China")
+            bambulab_api_url = "https://bambulab.cn"
+            cloud_region = "China"
+
         client_socket = TCPSocket(host, 3000)
         client_socket.connect()
         time.sleep(1)
         get_login_token(username, password)
+
 
