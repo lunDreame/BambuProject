@@ -67,7 +67,7 @@ def send_device_auth(preferred_username: str):
         send_user_ticket(received_json['login']['ticket'])
     elif received_json['login']['status'] == 'FAILURE':
         reason = json.loads(received_json['login'].get('reason'))
-        if reason.get('err_code') == 83968025:
+        if reason.get('devmsg') != "LAN-ONLY enabled" and reason.get('err_code') == 83968025:
             user_input = input('Device is already binded. Do you want to unbind? "True/False": ')
             unbind_device() if user_input.strip().lower() == 'true' else print("Device unbind user cancel")
         else:
